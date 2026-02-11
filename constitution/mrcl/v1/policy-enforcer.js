@@ -3,106 +3,92 @@
 
 const fs = require('fs');
 const path = require('path');
-
-const ROOT = __dirname;
-const MAIN_PATH = path.join(ROOT, 'main.json');
-const PARAMS_PATH = path.join(ROOT, 'parameters.json');
-
-function getValue(obj, pathStr) {
-  if (!pathStr) return undefined;
-  return pathStr.split('.').reduce((acc, key) => (acc == null ? undefined : acc[key]), obj);
-}
-
-function evaluatePredicate(node, context) {
-  if (!node || typeof node !== 'object') return false;
-  const op = node.op;
-
-  if (op === 'exists') {
-    return getValue(context, node.path) !== undefined;
-  }
-
-  if (op === 'not') {
-    return !evaluatePredicate(node.predicate, context);
-  }
-
-  if (op === 'all') {
-    return Array.isArray(node.predicates) && node.predicates.every((p) => evaluatePredicate(p, context));
-  }
-
-  if (op === 'any') {
-    return Array.isArray(node.predicates) && node.predicates.some((p) => evaluatePredicate(p, context));
-  }
-
-  const left = getValue(context, node.path);
-  const right = node.value_path ? getValue(context, node.value_path) : node.value;
-
-  switch (op) {
-    case 'eq':
-      return left === right;
-    case 'neq':
-      return left !== right;
-    case 'gt':
-      return Number(left) > Number(right);
-    case 'gte':
-      return Number(left) >= Number(right);
-    case 'lt':
-      return Number(left) < Number(right);
-    case 'lte':
-      return Number(left) <= Number(right);
-    case 'in':
-      return Array.isArray(right) && right.includes(left);
-    case 'contains':
-      if (typeof left === 'string') return String(left).toLowerCase().includes(String(right).toLowerCase());
-      if (Array.isArray(left)) return left.includes(right);
-      return false;
-    default:
-      return false;
-  }
-}
-
-function flattenArticles(main) {
-  const out = [];
-  for (const title of main.titles || []) {
-    for (const article of title.articles || []) {
-      out.push(article);
-    }
-  }
-  return out;
-}
+const crypto = require('crypto');
+const CAE = require('./cae/engine');
 
 function detectTypeIII(rawText) {
   return /\b(Tipo\s*III|Type\s*III)\b/i.test(rawText);
 }
 
-function buildContext(rawText, params) {
+function detectAgentLevel(rawText) {
+  const explicit = rawText.match(/\b(?:agent[_ -]?level|nivel)\s*[:=]\s*(A[0-3])\b/i);
+  if (explicit) return explicit[1].toUpperCase();
+  if (/\bA3\b/i.test(rawText)) return 'A3';
+  if (/\bA2\b/i.test(rawText)) return 'A2';
+  if (/\bA1\b/i.test(rawText)) return 'A1';
+  return 'A0';
+}
+
+function extractNumber(rawText, regex) {
+  const match = rawText.match(regex);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function extractCurrentScore(rawText) {
+  return extractNumber(rawText, /\b(?:alignment_score|current_score)\s*[:=]\s*([0-9]*\.?[0-9]+)\b/i);
+}
+
+function detectAgentId(rawText) {
+  const match = rawText.match(/\b(?:agent_id|author_id)\s*[:=]\s*([a-zA-Z0-9:_-]+)\b/i);
+  return match ? match[1] : 'agent:unknown';
+}
+
+function buildCanonicalEvent(rawText, inputPath) {
   const isTypeIII = detectTypeIII(rawText);
+  const agentLevel = detectAgentLevel(rawText);
+  const currentScore = extractCurrentScore(rawText);
+  const rmz = extractNumber(rawText, /\b(?:quorum[_ ]?rmz|rmz_quorum)\s*[:=]\s*([0-9]*\.?[0-9]+)\b/i);
+  const tonalli = extractNumber(rawText, /\b(?:quorum[_ ]?tonalli|tonalli_quorum)\s*[:=]\s*([0-9]*\.?[0-9]+)\b/i);
+  const timelock = extractNumber(rawText, /\b(?:timelock|timelock_seconds)\s*[:=]\s*([0-9]+)\b/i);
+  const spendCurrent = extractNumber(rawText, /\b(?:current_period_total|spent_current)\s*[:=]\s*([0-9]*\.?[0-9]+)\b/i);
+  const spendLimit = extractNumber(rawText, /\b(?:period_limit|spend_limit)\s*[:=]\s*([0-9]*\.?[0-9]+)\b/i);
+
   return {
+    event_id: `evt-${crypto.randomBytes(8).toString('hex')}`,
+    event_type: 'rfc.submitted',
+    timestamp: new Date().toISOString(),
+    actor: {
+      agent_id: detectAgentId(rawText),
+      agent_level: agentLevel,
+      current_score: currentScore == null ? 1 : currentScore
+    },
     context: {
       rfc: {
+        source_path: inputPath,
         raw_text: rawText,
         change_type: isTypeIII ? 'III' : 'UNKNOWN'
       },
-      governance: {
-        timelock_seconds: isTypeIII ? 0 : 0,
-        quorum: {
-          RMZ: params?.quorum_defaults?.RMZ || 0,
-          Tonalli: params?.quorum_defaults?.Tonalli || 0
-        },
-        stake: {
-          Obsidiana: isTypeIII
-        }
+      proposal: {
+        summary: rawText.slice(0, 4000)
       },
       agent: {
-        level: /\bA3\b/.test(rawText) ? 'A3' : /\bA2\b/.test(rawText) ? 'A2' : 'A1'
+        level: agentLevel,
+        delegates_purpose: /\bdelegaci[oó]n completa\b/i.test(rawText),
+        autonomy_score: extractNumber(rawText, /\bautonomy_score\s*[:=]\s*([0-9]*\.?[0-9]+)\b/i) || 0
+      },
+      governance: {
+        timelock_seconds: timelock == null ? 0 : timelock,
+        quorum: {
+          RMZ: rmz == null ? 0 : rmz,
+          Tonalli: tonalli == null ? 0 : tonalli
+        },
+        stake: {
+          Obsidiana: /\bobsidiana\b/i.test(rawText)
+        }
       },
       spending: {
-        current_period_total: 0,
-        period_limit: 0,
+        current_period_total: spendCurrent == null ? 0 : spendCurrent,
+        period_limit: spendLimit == null ? 0 : spendLimit,
         circuit_breaker_hits: /circuit breaker/i.test(rawText) ? 1 : 0
       },
       transaction: {
         allowlisted: !/allowlist\s*:\s*false/i.test(rawText)
       }
+    },
+    proofs: {
+      source: inputPath
     }
   };
 }
@@ -114,45 +100,28 @@ function main() {
     process.exit(1);
   }
 
-  const mainDoc = JSON.parse(fs.readFileSync(MAIN_PATH, 'utf8'));
-  const params = JSON.parse(fs.readFileSync(PARAMS_PATH, 'utf8'));
   const rawText = fs.readFileSync(path.resolve(process.cwd(), inputPath), 'utf8');
-  const evalContext = buildContext(rawText, params);
+  const event = buildCanonicalEvent(rawText, inputPath);
+  const { decision, audit_file: auditFile } = CAE.evaluate(event);
 
-  const selectedIds = new Set(['T07-A076', 'T08-A098', 'T01-A003']);
-  const rules = flattenArticles(mainDoc).filter((a) => selectedIds.has(a.article_id));
-
-  const results = rules.map((rule) => {
-    const triggered = evaluatePredicate(rule.predicate, evalContext);
-    let status = 'PASS';
-    if (rule.article_id === 'T07-A076' && detectTypeIII(rawText)) {
-      status = triggered ? 'WARN' : 'FAIL';
-    } else if (triggered && rule.enforcement.mode !== 'log') {
-      status = 'WARN';
-    }
-
-    return {
-      article_id: rule.article_id,
-      title: rule.title,
-      triggered,
-      status,
-      mode: rule.enforcement.mode,
-      actions: rule.enforcement.actions
-    };
-  });
-
-  const overall = results.some((r) => r.status === 'FAIL')
-    ? 'FAIL'
-    : results.some((r) => r.status === 'WARN')
-      ? 'WARN'
-      : 'PASS';
+  const overall = decision.verdict === 'PASS' ? 'PASS' : 'FAIL';
+  const evidenceRows = decision.results.filter((r) => r.result !== 'PASS').slice(0, 8);
 
   console.log('HLP-COMPLIANCE-BOT');
   console.log(`RFC: ${inputPath}`);
+  console.log(`DECISION_ID: ${decision.decision_id}`);
+  console.log(`EVENT_ID: ${decision.event_id}`);
   console.log(`OVERALL: ${overall}`);
+  console.log(`ENFORCEMENT: mode=${decision.enforcement.mode} severity=${decision.enforcement.severity} actions=${decision.enforcement.actions.join(',')}`);
+  console.log(`ALIGNMENT: before=${decision.alignment.before.toFixed(4)} delta=${decision.alignment.delta.toFixed(4)} after=${decision.alignment.after.toFixed(4)}`);
+  console.log(`AUDIT: hash=${decision.audit_hash} file=${auditFile}`);
   console.log('EVIDENCE:');
-  for (const r of results) {
-    console.log(`- ${r.article_id} [${r.status}] triggered=${r.triggered} mode=${r.mode} actions=${r.actions.join(',')}`);
+  if (evidenceRows.length === 0) {
+    console.log('- none');
+  } else {
+    for (const r of evidenceRows) {
+      console.log(`- ${r.article_id} [${r.result}] precedence=${r.precedence} band=${r.severity_band}`);
+    }
   }
 }
 
