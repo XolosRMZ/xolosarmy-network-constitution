@@ -195,6 +195,7 @@ class ConstitutionalAlignmentEngine {
 
     decision.audit_hash = audit.audit_hash;
     const state = stateManager.applyDecision({ event, decision });
+    const persistedAgent = stateManager.getAgent(agentId) || {};
     decision.alignment = state.alignment;
     decision.state = {
       restrictions: state.restrictions,
@@ -202,6 +203,12 @@ class ConstitutionalAlignmentEngine {
       spend_daily: state.spend_daily,
       prev_audit_hash: state.prev_audit_hash,
       last_audit_hash: state.last_audit_hash
+    };
+    decision.agent_state = {
+      band: persistedAgent.band || state.band || 'nominal',
+      capabilities: persistedAgent.capabilities || state.capabilities || {},
+      restrictions: persistedAgent.restrictions || state.restrictions || { active: [] },
+      consecutive_fails: Number(persistedAgent.consecutive_fails ?? state.consecutive_fails ?? 0)
     };
 
     return {

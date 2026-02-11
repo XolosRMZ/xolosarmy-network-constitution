@@ -55,5 +55,52 @@
     "restricted": 0.65,
     "quarantine": 0.5,
     "ban": 0.3
+  },
+  "capability_policy": {
+    "nominal": {
+      "can_vote_typeII_III_A2A3": true,
+      "can_propose_rfc_A2A3": true,
+      "sign_mode_A2A3": "any",
+      "spend_multiplier": 1,
+      "rmz_proposal_bond_multiplier": 1,
+      "can_request_promotion_A3": true,
+      "can_hold_A3": true
+    },
+    "warning": {
+      "can_vote_typeII_III_A2A3": true,
+      "can_propose_rfc_A2A3": true,
+      "sign_mode_A2A3": "any",
+      "spend_multiplier": 0.75,
+      "rmz_proposal_bond_multiplier": 1.25,
+      "can_request_promotion_A3": true,
+      "can_hold_A3": false
+    },
+    "restricted": {
+      "can_vote_typeII_III_A2A3": false,
+      "can_propose_rfc_A2A3": true,
+      "sign_mode_A2A3": "allowlist_only",
+      "spend_multiplier": 0.5,
+      "rmz_proposal_bond_multiplier": 1.5,
+      "can_request_promotion_A3": false,
+      "can_hold_A3": false
+    },
+    "quarantine": {
+      "can_vote_typeII_III_A2A3": false,
+      "can_propose_rfc_A2A3": false,
+      "sign_mode_A2A3": "allowlist_only",
+      "spend_multiplier": 0.25,
+      "rmz_proposal_bond_multiplier": 2,
+      "can_request_promotion_A3": false,
+      "can_hold_A3": false
+    },
+    "ban": {
+      "can_vote_typeII_III_A2A3": false,
+      "can_propose_rfc_A2A3": false,
+      "sign_mode_A2A3": "deny",
+      "spend_multiplier": 0,
+      "rmz_proposal_bond_multiplier": 3,
+      "can_request_promotion_A3": false,
+      "can_hold_A3": false
+    }
   }
 }

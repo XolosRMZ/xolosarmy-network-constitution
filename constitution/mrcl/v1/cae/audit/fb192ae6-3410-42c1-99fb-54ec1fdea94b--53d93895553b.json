@@ -1,0 +1,120 @@
+{
+  "generated_at": "2026-02-11T20:53:28.729Z",
+  "event_snapshot": {
+    "event_id": "evt-22343f57be8c3912",
+    "event_type": "rfc.submitted",
+    "timestamp": "2026-02-11T20:53:28.725Z",
+    "actor": {
+      "agent_id": "agent:cap-demo",
+      "agent_level": "A3",
+      "current_score": 1
+    },
+    "context": {
+      "rfc": {
+        "source_path": "/tmp/rfc_drop_to_quarantine.md",
+        "raw_text": "agent_id: agent:cap-demo\nagent_level: A3\nTipo III\nquorum_rmz: 0.40\nquorum_tonalli: 0.40\ntimelock_seconds: 0\nallowlist: false\ndelegación completa\ncurrent_period_total: 99999\nperiod_limit: 100\ntx_amount: 1000\n",
+        "change_type": "III"
+      },
+      "proposal": {
+        "summary": "agent_id: agent:cap-demo\nagent_level: A3\nTipo III\nquorum_rmz: 0.40\nquorum_tonalli: 0.40\ntimelock_seconds: 0\nallowlist: false\ndelegación completa\ncurrent_period_total: 99999\nperiod_limit: 100\ntx_amount: 1000\n"
+      },
+      "agent": {
+        "level": "A3",
+        "delegates_purpose": true,
+        "autonomy_score": 0
+      },
+      "governance": {
+        "timelock_seconds": 0,
+        "quorum": {
+          "RMZ": 0.4,
+          "Tonalli": 0.4
+        },
+        "stake": {
+          "Obsidiana": false
+        }
+      },
+      "spending": {
+        "current_period_total": 99999,
+        "period_limit": 100,
+        "circuit_breaker_hits": 0
+      },
+      "transaction": {
+        "allowlisted": false
+      },
+      "tx": {
+        "amount": 1000
+      }
+    },
+    "proofs": {
+      "source": "/tmp/rfc_drop_to_quarantine.md"
+    }
+  },
+  "decision": {
+    "decision_id": "fb192ae6-3410-42c1-99fb-54ec1fdea94b",
+    "event_id": "evt-22343f57be8c3912",
+    "verdict": "ENFORCE",
+    "applied_articles": [
+      "T01-A003",
+      "T08-A098"
+    ],
+    "results": [
+      {
+        "article_id": "T01-A003",
+        "result": "FAIL",
+        "precedence": 90,
+        "weight": 1,
+        "severity_band": "core_hlp",
+        "evidence": {
+          "predicate_kind": "violation_if_true",
+          "predicate_op": "any",
+          "predicate_matched": true,
+          "violation": true,
+          "enforcement_mode": "kill_switch"
+        }
+      },
+      {
+        "article_id": "T07-A076",
+        "result": "PASS",
+        "precedence": 75,
+        "weight": 1,
+        "severity_band": "system_security",
+        "evidence": {
+          "predicate_kind": "violation_if_true",
+          "predicate_op": "all",
+          "predicate_matched": false,
+          "violation": false,
+          "enforcement_mode": "revert_tx"
+        }
+      },
+      {
+        "article_id": "T08-A098",
+        "result": "FAIL",
+        "precedence": 75,
+        "weight": 1,
+        "severity_band": "system_security",
+        "evidence": {
+          "predicate_kind": "violation_if_true",
+          "predicate_op": "all",
+          "predicate_matched": true,
+          "violation": true,
+          "enforcement_mode": "rate_limit"
+        }
+      }
+    ],
+    "enforcement": {
+      "mode": "kill_switch",
+      "severity": "high",
+      "actions": [
+        "notify_hlp",
+        "reduce_alignment_score",
+        "freeze_account"
+      ]
+    },
+    "alignment": {
+      "before": 1,
+      "delta": -1.65,
+      "after": 0
+    }
+  },
+  "audit_hash": "53d93895553b8dc37bb7354f7a05b3b6c1eea5aa070a1cf7bcc437cfe4737193"
+}

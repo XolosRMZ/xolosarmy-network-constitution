@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "updated_at": "2026-02-11T20:15:08.864Z",
+  "updated_at": "2026-02-11T20:53:39.363Z",
   "agents": {
     "agent:unknown": {
       "agent_id": "agent:unknown",
@@ -63,6 +63,59 @@
       "updated_at": "2026-02-11T20:15:08.864Z",
       "last_event_id": "evt-095bd843d7827900",
       "last_decision_id": "d30e2396-fa02-4f79-a342-757b997089c7",
+      "last_verdict": "ENFORCE"
+    },
+    "agent:cap-demo": {
+      "agent_id": "agent:cap-demo",
+      "alignment_score": 0.45,
+      "consecutive_fails": 1,
+      "restrictions": {
+        "warning": true,
+        "restricted": true,
+        "quarantine": true,
+        "ban": false,
+        "active": [
+          "warning",
+          "restricted",
+          "quarantine",
+          "downgraded"
+        ],
+        "downgraded": true
+      },
+      "counters": {
+        "spend_daily": {
+          "day_utc": "2026-02-11",
+          "total": 1000,
+          "count": 2,
+          "limit": 10000
+        }
+      },
+      "audit": {
+        "prev_audit_hash": "53d93895553b8dc37bb7354f7a05b3b6c1eea5aa070a1cf7bcc437cfe4737193",
+        "last_audit_hash": "seed-hash-1"
+      },
+      "created_at": "2026-02-11T20:53:26.276Z",
+      "updated_at": "2026-02-11T20:53:39.363Z",
+      "agent_level": "A3",
+      "agent_level_effective": "A2",
+      "band": "quarantine",
+      "capabilities": {
+        "band": "quarantine",
+        "level_declared": "A3",
+        "level_effective": "A2",
+        "can_vote_typeII_III_A2A3": false,
+        "can_propose_rfc_A2A3": false,
+        "sign_mode_A2A3": "allowlist_only",
+        "spend_multiplier": 0.25,
+        "rmz_proposal_bond_multiplier": 2,
+        "can_request_promotion_A3": false,
+        "can_hold_A3": false,
+        "can_vote_typeII_III": false,
+        "can_propose_rfc": false,
+        "sign_mode": "allowlist_only"
+      },
+      "last_event_id": "evt-seed-1",
+      "last_decision_id": "dec-seed-1",
       "last_verdict": "ENFORCE"
     }
   }

@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const CAE = require('./cae/engine');
+const stateManager = require('./cae/state_manager');
 
 function detectTypeIII(rawText) {
   return /\b(Tipo\s*III|Type\s*III)\b/i.test(rawText);
@@ -97,6 +98,69 @@ function buildCanonicalEvent(rawText, inputPath) {
   };
 }
 
+function isA2A3(level) {
+  const normalized = String(level || '').toUpperCase();
+  return normalized === 'A2' || normalized === 'A3';
+}
+
+function buildCapabilityGatingDecision(event, agentState) {
+  const decisionId = typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+
+  const restrictions = agentState?.restrictions && typeof agentState.restrictions === 'object'
+    ? agentState.restrictions
+    : { active: [] };
+  const capabilities = agentState?.capabilities && typeof agentState.capabilities === 'object'
+    ? agentState.capabilities
+    : {};
+  const band = agentState?.band || 'nominal';
+
+  return {
+    decision_id: decisionId,
+    event_id: event.event_id,
+    verdict: 'ENFORCE',
+    applied_articles: ['CAPABILITY_GATING/RFC_PROPOSE'],
+    results: [
+      {
+        article_id: 'CAPABILITY_GATING/RFC_PROPOSE',
+        result: 'FAIL',
+        precedence: 100,
+        weight: 1,
+        severity_band: 'core_hlp',
+        evidence: {
+          reason: 'capabilities.can_propose_rfc=false',
+          event_type: event.event_type
+        }
+      }
+    ],
+    enforcement: {
+      mode: 'quarantine',
+      severity: 'high',
+      actions: ['block_rfc_submission']
+    },
+    alignment: {
+      before: Number(agentState?.alignment_score ?? 1),
+      delta: 0,
+      after: Number(agentState?.alignment_score ?? 1)
+    },
+    audit_hash: null,
+    state: {
+      restrictions,
+      consecutive_fails: Number(agentState?.consecutive_fails ?? 0),
+      spend_daily: agentState?.counters?.spend_daily || null,
+      prev_audit_hash: agentState?.audit?.prev_audit_hash || null,
+      last_audit_hash: agentState?.audit?.last_audit_hash || null
+    },
+    agent_state: {
+      band,
+      capabilities,
+      restrictions,
+      consecutive_fails: Number(agentState?.consecutive_fails ?? 0)
+    }
+  };
+}
+
 function main() {
   const inputPath = process.argv[2];
   if (!inputPath) {
@@ -106,7 +170,22 @@ function main() {
 
   const rawText = fs.readFileSync(path.resolve(process.cwd(), inputPath), 'utf8');
   const event = buildCanonicalEvent(rawText, inputPath);
-  const { decision, audit_file: auditFile } = CAE.evaluate(event);
+  const actorLevel = String(event?.actor?.agent_level || 'A0').toUpperCase();
+  const currentAgentState = stateManager.getAgent(event?.actor?.agent_id || 'agent:unknown');
+  const currentCapabilities = currentAgentState?.capabilities && typeof currentAgentState.capabilities === 'object'
+    ? currentAgentState.capabilities
+    : {};
+  const shouldGateProposal = (
+    event.event_type === 'rfc.submitted' &&
+    isA2A3(actorLevel) &&
+    currentCapabilities.can_propose_rfc === false
+  );
+
+  const result = shouldGateProposal
+    ? { decision: buildCapabilityGatingDecision(event, currentAgentState), audit_file: null }
+    : CAE.evaluate(event);
+  const decision = result.decision;
+  const auditFile = result.audit_file;
 
   const overall = decision.verdict === 'PASS' ? 'PASS' : 'FAIL';
   const evidenceRows = decision.results.filter((r) => r.result !== 'PASS').slice(0, 8);
@@ -118,6 +197,16 @@ function main() {
   console.log(`OVERALL: ${overall}`);
   console.log(`ENFORCEMENT: mode=${decision.enforcement.mode} severity=${decision.enforcement.severity} actions=${decision.enforcement.actions.join(',')}`);
   console.log(`ALIGNMENT: before=${decision.alignment.before.toFixed(4)} delta=${decision.alignment.delta.toFixed(4)} after=${decision.alignment.after.toFixed(4)}`);
+  const agentState = decision?.agent_state || {};
+  const capabilities = agentState?.capabilities || {};
+  const band = agentState?.band || 'unknown';
+  const proposeCap = capabilities?.can_propose_rfc;
+  const voteCap = capabilities?.can_vote_typeII_III;
+  const signMode = capabilities?.sign_mode;
+  const rmzBondMultiplier = capabilities?.rmz_proposal_bond_multiplier;
+  console.log(`BAND: ${band}`);
+  console.log(`CAPABILITIES: propose=${proposeCap === undefined ? 'n/a' : String(proposeCap)} vote_typeII_III=${voteCap === undefined ? 'n/a' : String(voteCap)} sign=${signMode || 'n/a'}`);
+  console.log(`RMZ_BOND_MULTIPLIER: ${rmzBondMultiplier === undefined ? 'n/a' : String(rmzBondMultiplier)}`);
   const activeRestrictions = Array.isArray(decision?.state?.restrictions?.active)
     ? decision.state.restrictions.active
     : [];

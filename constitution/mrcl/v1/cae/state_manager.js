@@ -168,6 +168,19 @@ function validateAgent(agentId, agent) {
   if (agent.audit.last_audit_hash !== null) {
     assertPrimaryType(agent.audit.last_audit_hash, 'string', `agents.${agentId}.audit.last_audit_hash`);
   }
+
+  if (Object.prototype.hasOwnProperty.call(agent, 'agent_level')) {
+    assertPrimaryType(agent.agent_level, 'string', `agents.${agentId}.agent_level`);
+  }
+  if (Object.prototype.hasOwnProperty.call(agent, 'agent_level_effective')) {
+    assertPrimaryType(agent.agent_level_effective, 'string', `agents.${agentId}.agent_level_effective`);
+  }
+  if (Object.prototype.hasOwnProperty.call(agent, 'band')) {
+    assertPrimaryType(agent.band, 'string', `agents.${agentId}.band`);
+  }
+  if (Object.prototype.hasOwnProperty.call(agent, 'capabilities')) {
+    assertPrimaryType(agent.capabilities, 'object', `agents.${agentId}.capabilities`);
+  }
 }
 
 function validateState(state) {
@@ -226,6 +239,90 @@ function restrictionsFromThresholds(score, thresholds) {
   return {
     ...flags,
     active
+  };
+}
+
+function deriveBand(score, params) {
+  const thresholds = params?.alignment_score_thresholds || {};
+  const warning = Number(thresholds.warning);
+  const restricted = Number(thresholds.restricted);
+  const quarantine = Number(thresholds.quarantine);
+  const ban = Number(thresholds.ban);
+
+  if (Number.isFinite(ban) && score <= ban) return 'ban';
+  if (Number.isFinite(quarantine) && score <= quarantine) return 'quarantine';
+  if (Number.isFinite(restricted) && score <= restricted) return 'restricted';
+  if (Number.isFinite(warning) && score <= warning) return 'warning';
+  return 'nominal';
+}
+
+function toBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  return fallback;
+}
+
+function toSigningMode(value, fallback = 'any') {
+  if (value === 'any' || value === 'allowlist_only' || value === 'deny') return value;
+  return fallback;
+}
+
+function deriveCapabilities(agent, bandName, params) {
+  const capabilityPolicy = params?.capability_policy || {};
+  const nominal = capabilityPolicy.nominal || {};
+  const bandCfg = capabilityPolicy[bandName] || nominal;
+  const declaredLevel = String(agent?.agent_level || 'A0').toUpperCase();
+  const effectiveLevel = String(agent?.agent_level_effective || declaredLevel).toUpperCase();
+  const isA2A3 = effectiveLevel === 'A2' || effectiveLevel === 'A3';
+  const isA0 = effectiveLevel === 'A0';
+
+  const canVoteA2A3 = toBoolean(
+    bandCfg.can_vote_typeII_III_A2A3,
+    toBoolean(nominal.can_vote_typeII_III_A2A3, true)
+  );
+  const canProposeA2A3 = toBoolean(
+    bandCfg.can_propose_rfc_A2A3,
+    toBoolean(nominal.can_propose_rfc_A2A3, true)
+  );
+
+  const signingModeA2A3 = toSigningMode(
+    bandCfg.sign_mode_A2A3,
+    toSigningMode(nominal.sign_mode_A2A3, 'any')
+  );
+  const bandSignMode = bandName === 'ban' ? 'deny' : signingModeA2A3;
+  const spendMultiplier = Number.isFinite(Number(bandCfg.spend_multiplier))
+    ? Number(bandCfg.spend_multiplier)
+    : Number.isFinite(Number(nominal.spend_multiplier))
+      ? Number(nominal.spend_multiplier)
+      : 1;
+  const rmzBondMultiplier = Number.isFinite(Number(bandCfg.rmz_proposal_bond_multiplier))
+    ? Number(bandCfg.rmz_proposal_bond_multiplier)
+    : Number.isFinite(Number(nominal.rmz_proposal_bond_multiplier))
+      ? Number(nominal.rmz_proposal_bond_multiplier)
+      : 1;
+
+  const canRequestPromotionA3 = toBoolean(
+    bandCfg.can_request_promotion_A3,
+    toBoolean(nominal.can_request_promotion_A3, true)
+  );
+  const canHoldA3 = toBoolean(
+    bandCfg.can_hold_A3,
+    toBoolean(nominal.can_hold_A3, true)
+  );
+
+  return {
+    band: bandName,
+    level_declared: declaredLevel,
+    level_effective: effectiveLevel,
+    can_vote_typeII_III_A2A3: canVoteA2A3,
+    can_propose_rfc_A2A3: canProposeA2A3,
+    sign_mode_A2A3: bandSignMode,
+    spend_multiplier: spendMultiplier,
+    rmz_proposal_bond_multiplier: rmzBondMultiplier,
+    can_request_promotion_A3: canRequestPromotionA3,
+    can_hold_A3: canHoldA3,
+    can_vote_typeII_III: isA2A3 ? canVoteA2A3 : true,
+    can_propose_rfc: isA2A3 ? canProposeA2A3 : true,
+    sign_mode: isA0 && bandName !== 'ban' ? 'any' : bandSignMode
   };
 }
 
@@ -343,7 +440,7 @@ function applyDecision(args) {
       spendDaily.count = Number(spendDaily.count || 0) + 1;
     }
 
-    const level = event?.actor?.agent_level;
+    const level = String(event?.actor?.agent_level || current?.agent_level || 'A0').toUpperCase();
     const templateLimit = toNumberOrNull(params?.agent_limit_templates?.[level]?.daily_limit);
     if (templateLimit !== null) {
       spendDaily.limit = templateLimit;
@@ -352,12 +449,35 @@ function applyDecision(args) {
     const prevAuditHash = current?.audit?.last_audit_hash || null;
     const lastAuditHash = decision?.audit_hash || null;
 
-    const restrictions = restrictionsFromThresholds(after, thresholds);
+    const bandName = deriveBand(after, params);
+    const baseRestrictions = restrictionsFromThresholds(after, thresholds);
+    const restrictions = {
+      ...baseRestrictions,
+      downgraded: false,
+      active: Array.isArray(baseRestrictions.active) ? [...baseRestrictions.active] : []
+    };
+    let effectiveLevel = level;
+    if (level === 'A3' && bandName !== 'nominal') {
+      effectiveLevel = 'A2';
+      restrictions.downgraded = true;
+      if (!restrictions.active.includes('downgraded')) {
+        restrictions.active.push('downgraded');
+      }
+    }
+    const capabilities = deriveCapabilities({
+      ...current,
+      agent_level: level,
+      agent_level_effective: effectiveLevel
+    }, bandName, params);
 
     const next = {
       ...current,
       agent_id: String(agentId),
+      agent_level: level,
+      agent_level_effective: effectiveLevel,
       alignment_score: after,
+      band: bandName,
+      capabilities,
       consecutive_fails: decision.verdict === 'ENFORCE'
         ? Number(current.consecutive_fails || 0) + 1
         : 0,
@@ -388,6 +508,8 @@ function applyDecision(args) {
       score_before: before,
       score_delta: delta,
       score_after: after,
+      band: bandName,
+      capabilities,
       restrictions_active: restrictions.active,
       consecutive_fails: next.consecutive_fails,
       spend_daily: {
@@ -409,6 +531,8 @@ function applyDecision(args) {
         delta,
         after
       },
+      band: bandName,
+      capabilities,
       restrictions,
       consecutive_fails: next.consecutive_fails,
       spend_daily: logEntry.spend_daily,
@@ -424,5 +548,8 @@ module.exports = {
   getAgent,
   upsertAgent,
   applyDecision,
-  appendLog
+  appendLog,
+  restrictionsFromThresholds,
+  deriveBand,
+  deriveCapabilities
 };
