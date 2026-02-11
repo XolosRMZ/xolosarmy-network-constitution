@@ -14,5 +14,6 @@
 ## Plan de despliegue
 ## Timelock requerido
 ## Quórum requerido (RMZ / Tonalli / Obsidiana)
+HLP-COMPLIANCE: PASS|FAIL — razones breves + artículos referenciados (ej: Art. 24, 26, 63)
 ## Hash(es) / TXIDs
 ## Post-mortem (si aplica)
